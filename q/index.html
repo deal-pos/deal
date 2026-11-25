@@ -75,7 +75,22 @@ async function unz(u) {
   return inflateRaw(u);
 }
 // one page for both links: #s… = invoice signature (same page the shop already uploaded for quotes)
-window.__SIGN = location.hash.slice(0, 2) === '#s';
+// short link #k<id>: read the body from the shop's link service (q/config.json → api), then open it as a normal link
+window.__K = /^#k[A-Za-z0-9]{5,12}$/.test(location.hash);
+if (window.__K) (async () => {
+  const app = document.getElementById('app'), id = location.hash.slice(2);
+  try {
+    let api = '';
+    try { api = ((await (await fetch('config.json', { cache: 'no-store' })).json()) || {}).api || ''; } catch (e) {}
+    if (!/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)[:/])/.test(api)) throw new Error('config');
+    let r = null;
+    for (let i = 0; i < 2 && !(r && r.ok); i++) { try { r = await (await fetch(api + '?op=get&id=' + encodeURIComponent(id))).json(); } catch (e) { r = { ok: false, error: 'net' }; } }
+    if (!r || !r.ok || !r.d) throw new Error((r && r.error) || 'gone');
+    try { sessionStorage.setItem('dlk', JSON.stringify({ id, api, h: r.d.replace(/^s/, '').slice(0, 40) })); } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search + '#' + r.d); location.reload();
+  } catch (e) { app.innerHTML = '<div class="err">الرابط انتهى أو ما قدرنا نفتحه — اطلب من المحل يرسله مرة ثانية.<br><small style="opacity:.6">رمز: k-' + String(e.message || e).replace(/[<>&]/g, '').slice(0, 40) + '</small></div>'; }
+})();
+window.__SIGN = !window.__K && location.hash.slice(0, 2) === '#s';
 if (window.__SIGN) { document.querySelector('style').textContent = "\n:root{--bg:#F3F5F4;--card:#fff;--ink:#14211D;--muted:#66736F;--line:#E2E7E5;--acc:#8B2635;--ok:#1E7B4F;--bad:#B3261E}\n@media (prefers-color-scheme:dark){:root{--bg:#0E1513;--card:#16201D;--ink:#E8EFEC;--muted:#9AA8A3;--line:#26332F}}\n*{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Tahoma,\"Noto Kufi Arabic\",sans-serif;padding:0 0 30px}\n.wrap{max-width:640px;margin:0 auto;padding:16px}\n.head{background:linear-gradient(135deg,#3A1018,#8B2635);color:#fff;border-radius:0 0 22px 22px;padding:22px 18px 26px;margin:-16px -16px 16px}\n.head small{opacity:.8}.head h1{margin:2px 0 6px;font-size:22px}.head .meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13.5px;opacity:.92}\n.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}\n.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:14.5px}.row:first-child{border-top:0}\n.row .q{color:var(--muted);white-space:nowrap}\n.tot{display:flex;justify-content:space-between;font-size:20px;font-weight:800;padding-top:8px;margin-top:6px;border-top:1px dashed var(--line)}\n.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate}\n.ack{background:color-mix(in srgb,var(--acc) 9%,transparent);border-radius:12px;padding:12px;font-size:15px}\nlabel{display:block;font-size:13.5px;color:var(--muted);margin:8px 0 4px}\ninput{width:100%;border:1px solid var(--line);border-radius:12px;padding:11px;font:inherit;background:var(--bg);color:var(--ink)}\n.pad{position:relative;border:2px dashed var(--line);border-radius:14px;background:#fff;touch-action:none;height:190px}\n.pad canvas{width:100%;height:100%;display:block;border-radius:12px}\n.pad .ph[hidden]{display:none}.pad .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#A3ADA9;pointer-events:none;font-size:15px}\n.tools{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:13px;color:var(--muted)}\nbutton{font:inherit;font-weight:700;border:0;border-radius:14px;padding:14px;cursor:pointer}\n.go{width:100%;background:#25D366;color:#06210f;font-size:17px;margin-top:12px}.go:disabled{opacity:.5}\n.clr{background:transparent;color:var(--muted);border:1px solid var(--line);padding:6px 12px;font-size:13px}\n.err{text-align:center;padding:60px 20px;color:var(--muted)}.msg{text-align:center;color:var(--muted);font-size:14px;margin-top:8px}\n.bad{color:var(--bad);font-size:13.5px;margin-top:6px}\n"; history.replaceState(null, '', location.pathname + location.search + '#' + location.hash.slice(2)); document.title = 'توقيع فاتورة'; const z = document.getElementById('zoom'); if (z) z.remove(); }
 </script>
 <script>
@@ -139,13 +154,20 @@ if (window.__SIGN) (async () => {
     if (!strokes.length || strokes.flat().length < 4) { bad.textContent = L.needSig; bad.hidden = false; return; }
     $('#go').disabled = true; const sig = await encode();
     const lines = [`✍️ ${L.mark} ${D.no}`].concat(need.filter(k => F[k]).map(k => `${F[k]}: ${$('#f_' + k).value.trim().replace(/\s+/g, ' ')}`)).concat([`[SIG:${D.k || ''}.${sig}]`]);
+    // came through a short link → send the signature straight to the shop; WhatsApp only as a fallback
+    let dl = null; try { dl = JSON.parse(sessionStorage.getItem('dlk') || 'null'); } catch (e) {}
+    if (dl && dl.api && dl.id && dl.h && location.hash.replace(/^#s?/, '').slice(0, dl.h.length) === dl.h) {
+      const f = {}; need.filter(k => F[k]).forEach(k => { f[k] = $('#f_' + k).value.trim().replace(/\s+/g, ' '); });
+      let r = null; try { r = await (await fetch(dl.api, { method: 'POST', body: JSON.stringify({ op: 'sign', id: dl.id, no: D.no, sig: `${D.k || ''}.${sig}`, f }) })).json(); } catch (e) { r = null; }
+      if (r && r.ok) { $('#go').hidden = true; $('#clr').disabled = true; cv.style.pointerEvents = 'none'; const m = $('#msg'); m.textContent = en ? '✅ Signed — the shop has received your signature. Thank you!' : '✅ تم التوقيع ووصل للمحل — شكراً لك!'; m.hidden = false; return; }
+    }
     $('#msg').hidden = false; $('#go').disabled = false;
     location.href = `https://wa.me/${encodeURIComponent(d.s.p || '')}?text=${encodeURIComponent(lines.join('\n'))}`;
   };
 })()
 </script>
 <script>
-if (!window.__SIGN) (async () => {
+if (!window.__SIGN && !window.__K) (async () => {
   const $ = s => document.querySelector(s), esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const app = $('#app'), h = location.hash.slice(1);
   const fromB64u = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
