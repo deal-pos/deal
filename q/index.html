@@ -204,11 +204,19 @@ if (!window.__SIGN && !window.__K) (async () => {
   Z.onclick = e => { if (e.target === Z || e.target.tagName === 'IMG') Z.classList.remove('on'); };
   let sx = null; Z.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
   Z.addEventListener('touchend', e => { if (sx == null || zg.length < 2) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 40) step((dx < 0) !== !en ? -1 : 1); });
-  if (expired || !d.s.p) return;
+  // opened from a short link → the answer goes straight to the shop's link service; otherwise (or if that fails) WhatsApp
+  let dl = null; try { dl = JSON.parse(sessionStorage.getItem('dlk') || 'null'); } catch (e) {}
+  if (!(dl && dl.api && dl.id && dl.h && location.hash.replace(/^#s?/, '').slice(0, dl.h.length) === dl.h)) dl = null;
+  if (expired || (!d.s.p && !dl)) return;
   const bar = document.createElement('div'); bar.className = 'bar';
   bar.innerHTML = `<div class="in"><textarea id="note" rows="1" placeholder="${L.note}"></textarea><div class="btns"><button class="yes" id="yes">${L.ok}</button><button class="no" id="no">${L.no2}</button></div><div class="ds" id="msg" hidden style="text-align:center">${L.thanks}</div></div>`;
   document.body.appendChild(bar);
-  const go = ok => { const n = $('#note').value.trim(); const text = `${ok ? '✅ ' + L.approveMsg : '✖ ' + L.declineMsg} ${d.q.no}${n ? `\n${L.noteW}: ${n}` : ''}`;
+  const go = async ok => { const n = $('#note').value.trim();
+    if (dl) { $('#yes').disabled = $('#no').disabled = true; let r = null;
+      try { r = await (await fetch(dl.api, { method: 'POST', body: JSON.stringify({ op: 'ans', id: dl.id, no: d.q.no, ok, note: n }) })).json(); } catch (e) { r = null; }
+      if (r && r.ok) { const m = $('#msg'); m.textContent = ok ? (en ? '✅ Your approval reached the shop — thank you!' : '✅ وصل اعتمادك للمحل — شكراً لك!') : (en ? 'Your reply reached the shop — thank you.' : 'وصل ردّك للمحل — شكراً لك.'); m.hidden = false; $('#yes').hidden = $('#no').hidden = true; $('#note').disabled = true; return; }
+      $('#yes').disabled = $('#no').disabled = false; if (!d.s.p) { alert(en ? 'Could not send — please try again.' : 'ما قدرنا نرسل — جرّب مرة ثانية.'); return; } }
+    const text = `${ok ? '✅ ' + L.approveMsg : '✖ ' + L.declineMsg} ${d.q.no}${n ? `\n${L.noteW}: ${n}` : ''}`;
     $('#msg').hidden = false; location.href = `https://wa.me/${encodeURIComponent(d.s.p)}?text=${encodeURIComponent(text)}`; };
   $('#yes').onclick = () => go(true); $('#no').onclick = () => go(false);
 })();
